@@ -34,8 +34,11 @@ const shine =
   "motion-reduce:after:transition-none motion-reduce:hover:after:opacity-0";
 
 export function PrimaryButton({ href, children, className, ...rest }: Props) {
+  const isExternal = href.startsWith('http') || href.startsWith('mailto:') || href.startsWith('tel:');
+  const Component = isExternal ? 'a' : Link;
+  
   return (
-    <Link
+    <Component
       href={href}
       {...rest}
       className={cn(
@@ -58,13 +61,16 @@ export function PrimaryButton({ href, children, className, ...rest }: Props) {
       )}
     >
       <span className="relative z-10">{children}</span>
-    </Link>
+    </Component>
   );
 }
 
 export function SecondaryButton({ href, children, className, ...rest }: Props) {
+  const isExternal = href.startsWith('http') || href.startsWith('mailto:') || href.startsWith('tel:');
+  const Component = isExternal ? 'a' : Link;
+  
   return (
-    <Link
+    <Component
       href={href}
       {...rest}
       className={cn(
@@ -87,6 +93,6 @@ export function SecondaryButton({ href, children, className, ...rest }: Props) {
       )}
     >
       <span className="relative z-10">{children}</span>
-    </Link>
+    </Component>
   );
 }
