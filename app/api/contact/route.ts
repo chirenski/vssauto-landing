@@ -1,7 +1,4 @@
-import { Resend } from 'resend';
 import { NextResponse } from "next/server";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 type Payload = {
   name: string;
@@ -33,6 +30,11 @@ export async function POST(req: Request) {
   }
 
   try {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      throw new Error("Missing RESEND_API_KEY");
+    }
+
     const to = process.env.CONTACT_TO || "office@vssauto.net";
 
     const htmlContent = `
@@ -83,24 +85,31 @@ export async function POST(req: Request) {
       message,
     ].join("\n");
 
-    const { data: emailData, error } = await resend.emails.send({
-      from: 'VSS Auto <onboarding@resend.dev>',
-      to: [to],
-      replyTo: email || undefined,
-      subject: `Ново запитване — ${name}`,
-      html: htmlContent,
-      text: textContent,
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: "VSS Auto <onboarding@resend.dev>",
+        to: [to],
+        reply_to: email || undefined,
+        subject: `Ново запитване — ${name}`,
+        html: htmlContent,
+        text: textContent,
+      }),
     });
 
-    if (error) {
-      console.error("Resend error:", error);
-      return NextResponse.json(
-        { error: "Грешка при изпращане. Моля свържи се по телефон." },
-        { status: 500 }
-      );
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error("Resend API error:", errorData);
+      throw new Error(`Resend API error: ${response.status}`);
     }
 
-    console.log("Email изпратен:", emailData);
+    const result = await response.json();
+    console.log("Email изпратен успешно:", result);
+
     return NextResponse.json({ ok: true });
     
   } catch (e) {
