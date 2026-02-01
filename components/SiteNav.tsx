@@ -148,12 +148,20 @@ export default function SiteNav() {
           {/* RIGHT */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="hidden xl:flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2">
-              <a href={`tel:${CONTACT_PHONE_TEL}`} className="flex items-center gap-2 text-sm font-semibold">
+              <a 
+                href={`tel:${CONTACT_PHONE_TEL}`} 
+                className="flex items-center gap-2 text-sm font-semibold hover:text-vss-accent transition-colors tabular-nums"
+                aria-label={`Обади се на ${CONTACT_PHONE_DISPLAY}`}
+              >
                 <PhoneIcon />
                 {CONTACT_PHONE_DISPLAY}
               </a>
               <span className="h-5 w-px bg-white/10" />
-              <a href={`mailto:${CONTACT_EMAIL}`} className="flex items-center gap-2 text-sm font-semibold">
+              <a 
+                href={`mailto:${CONTACT_EMAIL}`} 
+                className="flex items-center gap-2 text-sm font-semibold hover:text-vss-accent transition-colors"
+                aria-label={`Изпрати имейл на ${CONTACT_EMAIL}`}
+              >
                 <MailIcon />
                 {CONTACT_EMAIL}
               </a>
