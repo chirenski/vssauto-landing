@@ -1,5 +1,7 @@
-import nodemailer from "nodemailer";
+import { Resend } from 'resend';
 import { NextResponse } from "next/server";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 type Payload = {
   name: string;
@@ -8,12 +10,6 @@ type Payload = {
   car?: string;
   message: string;
 };
-
-function getEnv(name: string, required = true) {
-  const v = process.env[name];
-  if (!v && required) throw new Error(`Missing env: ${name}`);
-  return v || "";
-}
 
 export async function POST(req: Request) {
   let data: Payload;
@@ -37,23 +33,45 @@ export async function POST(req: Request) {
   }
 
   try {
-    const host = getEnv("SMTP_HOST");
-    const port = Number(getEnv("SMTP_PORT"));
-    const user = getEnv("SMTP_USER");
-    const pass = getEnv("SMTP_PASS");
-
     const to = process.env.CONTACT_TO || "office@vssauto.net";
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-    });
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #ff8c00;">Ново запитване от vssauto.net</h2>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Име:</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${name}</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Телефон:</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd;">
+              <a href="tel:${phone.replace(/\s/g, '')}">${phone}</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Имейл:</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd;">
+              ${email ? `<a href="mailto:${email}">${email}</a>` : '-'}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Автомобил:</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${car || '-'}</td>
+          </tr>
+        </table>
+        <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-left: 4px solid #ff8c00;">
+          <p style="font-weight: bold; margin-top: 0;">Съобщение:</p>
+          <p style="white-space: pre-wrap;">${message}</p>
+        </div>
+        <hr style="margin-top: 30px; border: none; border-top: 1px solid #ddd;" />
+        <p style="color: #666; font-size: 12px; text-align: center;">
+          Изпратено от vssauto.net
+        </p>
+      </div>
+    `;
 
-    const subject = `Ново запитване (vssauto.net) — ${name}`;
-
-    const text = [
+    const textContent = [
       "Ново запитване от сайта vssauto.net",
       "",
       `Име: ${name}`,
@@ -65,19 +83,32 @@ export async function POST(req: Request) {
       message,
     ].join("\n");
 
-    await transporter.sendMail({
-      from: `VSS Auto <${user}>`,
-      to,
+    const { data: emailData, error } = await resend.emails.send({
+      from: 'VSS Auto <onboarding@resend.dev>',
+      to: [to],
       replyTo: email || undefined,
-      subject,
-      text,
+      subject: `Ново запитване — ${name}`,
+      html: htmlContent,
+      text: textContent,
     });
 
+    if (error) {
+      console.error("Resend error:", error);
+      return NextResponse.json(
+        { error: "Грешка при изпращане. Моля свържи се по телефон." },
+        { status: 500 }
+      );
+    }
+
+    console.log("Email изпратен:", emailData);
     return NextResponse.json({ ok: true });
+    
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Mail error";
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    console.error("Email error:", msg);
+    
     return NextResponse.json(
-      { error: "Грешка при изпращане. (SMTP)", details: msg },
+      { error: "Грешка при изпращане. Моля свържи се по телефон." },
       { status: 500 }
     );
   }
