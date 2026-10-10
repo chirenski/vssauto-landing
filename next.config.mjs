@@ -1,8 +1,8 @@
 
 /** @type {import('next').NextConfig} */
 
-// CSP в тестов режим — не блокира ресурси.
-const cspReportOnly = [
+// Active Content Security Policy
+const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline'",
@@ -13,9 +13,15 @@ const cspReportOnly = [
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
+  "frame-ancestors 'none'",
+  "upgrade-insecure-requests",
 ].join("; ");
 
 const securityHeaders = [
+  {
+    key: "Content-Security-Policy",
+    value: contentSecurityPolicy,
+  },
   {
     key: "X-Content-Type-Options",
     value: "nosniff",
@@ -35,10 +41,6 @@ const securityHeaders = [
   {
     key: "Strict-Transport-Security",
     value: "max-age=15552000",
-  },
-  {
-    key: "Content-Security-Policy-Report-Only",
-    value: cspReportOnly,
   },
 ];
 
