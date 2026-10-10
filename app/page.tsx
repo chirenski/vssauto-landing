@@ -10,18 +10,11 @@ const CONTACT_EMAIL = "office@vssauto.net";
 const CONTACT_PHONE_DISPLAY = "0882 12 77 87";
 const CONTACT_PHONE_TEL = "+359882127787";
 
-/**
- * Location: use your Google Business listing name.
- * Since you fixed it in Google as "VSSauto Ltd", we use destination query to that POI.
- * This avoids wrong geocoding by free-form address.
- */
-const BUSINESS_NAME = "VSSauto Ltd";
-const BUSINESS_CITY = "Sofia";
-const LOCATION_LABEL = "VSSauto Ltd (гр.София)";
-const MAPS_DESTINATION_QUERY = `${BUSINESS_NAME}, ${BUSINESS_CITY}`;
-const MAPS_DIRECTIONS_URL = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-  MAPS_DESTINATION_QUERY
-)}`;
+// Verified navigation destination for VSSauto Ltd. Chiptuning and Diagnostic.
+// Use coordinates instead of a name-based search, which may select another business.
+const LOCATION_LABEL = "бул. Искърско шосе 1Д, София";
+const MAPS_DIRECTIONS_URL =
+  "https://www.google.com/maps/dir/?api=1&destination=42.671502%2C23.3985137&travelmode=driving";
 
 const services = [
   {
