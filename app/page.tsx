@@ -10,11 +10,12 @@ const CONTACT_EMAIL = "office@vssauto.net";
 const CONTACT_PHONE_DISPLAY = "0882 12 77 87";
 const CONTACT_PHONE_TEL = "+359882127787";
 
-// Verified navigation destination for VSSauto Ltd. Chiptuning and Diagnostic.
-// Use coordinates instead of a name-based search, which may select another business.
+// Direct directions to the verified Google Maps business listing.
+// The Place ID disambiguates VSS Auto from similarly named businesses.
 const LOCATION_LABEL = "бул. Искърско шосе 1Д, София";
+const GOOGLE_PLACE_ID = "ChIJcRRq7DmHqkARd_CtTRabOKE";
 const MAPS_DIRECTIONS_URL =
-  "https://www.google.com/maps/dir/?api=1&destination=42.671502%2C23.3985137&travelmode=driving";
+  `https://www.google.com/maps/dir/?api=1&destination=42.671502%2C23.3985137&destination_place_id=${GOOGLE_PLACE_ID}&travelmode=driving`;
 
 const services = [
   {
