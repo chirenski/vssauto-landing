@@ -1,123 +1,143 @@
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+
 type Payload = {
-  name: string;
-  phone: string;
-  email?: string;
-  car?: string;
-  message: string;
+  name?: unknown;
+  phone?: unknown;
+  email?: unknown;
+  car?: unknown;
+  message?: unknown;
 };
 
+function readField(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function invalid(message: string) {
+  return NextResponse.json({ error: message }, { status: 400 });
+}
+
 export async function POST(req: Request) {
-  let data: Payload;
+  let body: Payload;
+
   try {
-    data = (await req.json()) as Payload;
+    const parsed: unknown = await req.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return invalid("Невалидни данни.");
+    }
+    body = parsed as Payload;
   } catch {
-    return NextResponse.json({ error: "Невалидни данни." }, { status: 400 });
+    return invalid("Невалидни данни.");
   }
 
-  const name = (data.name || "").trim();
-  const phone = (data.phone || "").trim();
-  const email = (data.email || "").trim();
-  const car = (data.car || "").trim();
-  const message = (data.message || "").trim();
+  const name = readField(body.name);
+  const phone = readField(body.phone);
+  const email = readField(body.email);
+  const car = readField(body.car);
+  const message = readField(body.message);
 
   if (!name || !phone || !message) {
+    return invalid("Попълни име, телефон и съобщение.");
+  }
+
+  if (name.length > 120 || phone.length > 50 || email.length > 254 || car.length > 200 || message.length > 5000) {
+    return invalid("Някое от полетата е прекалено дълго.");
+  }
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return invalid("Невалиден имейл адрес.");
+  }
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.error("Contact form: RESEND_API_KEY is missing");
     return NextResponse.json(
-      { error: "Липсват задължителни полета." },
-      { status: 400 }
+      { error: "Временно не можем да изпратим запитването. Моля, обади се по телефона." },
+      { status: 500 }
     );
   }
 
+  const to = process.env.CONTACT_TO || "office@vssauto.net";
+  const safeName = escapeHtml(name);
+  const safePhone = escapeHtml(phone);
+  const safeEmail = escapeHtml(email);
+  const safeCar = escapeHtml(car);
+  const safeMessage = escapeHtml(message);
+  const phoneLink = phone.replace(/[^\d+]/g, "");
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#222">
+      <h2 style="color:#f58a00">Ново запитване от VSS Auto</h2>
+      <p><strong>Име:</strong> ${safeName}</p>
+      <p><strong>Телефон:</strong> <a href="tel:${escapeHtml(phoneLink)}">${safePhone}</a></p>
+      <p><strong>Имейл:</strong> ${email ? `<a href="mailto:${safeEmail}">${safeEmail}</a>` : "—"}</p>
+      <p><strong>Автомобил:</strong> ${safeCar || "—"}</p>
+      <p><strong>Съобщение:</strong></p>
+      <div style="white-space:pre-wrap;padding:16px;background:#f5f5f5;border-left:4px solid #f58a00">${safeMessage}</div>
+      <p style="font-size:12px;color:#777">Изпратено от контактната форма на vssauto.net</p>
+    </div>
+  `;
+
+  const text = [
+    "Ново запитване от vssauto.net",
+    `Име: ${name}`,
+    `Телефон: ${phone}`,
+    `Имейл: ${email || "—"}`,
+    `Автомобил: ${car || "—"}`,
+    "",
+    "Съобщение:",
+    message,
+  ].join("\n");
+
   try {
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) {
-      throw new Error("Missing RESEND_API_KEY");
-    }
-
-    const to = process.env.CONTACT_TO || "office@vssauto.net";
-
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #ff8c00;">Ново запитване от vssauto.net</h2>
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Име:</td>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${name}</td>
-          </tr>
-          <tr>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Телефон:</td>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd;">
-              <a href="tel:${phone.replace(/\s/g, '')}">${phone}</a>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Имейл:</td>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd;">
-              ${email ? `<a href="mailto:${email}">${email}</a>` : '-'}
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">Автомобил:</td>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${car || '-'}</td>
-          </tr>
-        </table>
-        <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-left: 4px solid #ff8c00;">
-          <p style="font-weight: bold; margin-top: 0;">Съобщение:</p>
-          <p style="white-space: pre-wrap;">${message}</p>
-        </div>
-        <hr style="margin-top: 30px; border: none; border-top: 1px solid #ddd;" />
-        <p style="color: #666; font-size: 12px; text-align: center;">
-          Изпратено от vssauto.net
-        </p>
-      </div>
-    `;
-
-    const textContent = [
-      "Ново запитване от сайта vssauto.net",
-      "",
-      `Име: ${name}`,
-      `Телефон: ${phone}`,
-      `Имейл: ${email || "-"}`,
-      `Автомобил: ${car || "-"}`,
-      "",
-      "Съобщение:",
-      message,
-    ].join("\n");
-
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "VSS Auto <onboarding@resend.dev>",
+        from: "VSS Auto <noreply@vssauto.net>",
         to: [to],
-        reply_to: email || undefined,
-        subject: `Ново запитване — ${name}`,
-        html: htmlContent,
-        text: textContent,
+        ...(email ? { reply_to: email } : {}),
+        subject: `Ново запитване от сайта — ${name.replace(/[\r\n]/g, " ")}`,
+        html,
+        text,
       }),
+      cache: "no-store",
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error("Resend API error:", errorData);
-      throw new Error(`Resend API error: ${response.status}`);
+      const details: unknown = await response.json().catch(() => null);
+      // Do not log API keys or customers' submitted personal information.
+      const providerCode = details && typeof details === "object" && "name" in details
+        ? String((details as { name?: unknown }).name)
+        : "unknown";
+      console.error("Contact form: Resend rejected request", {
+        status: response.status,
+        providerCode,
+      });
+      return NextResponse.json(
+        { error: "Не успяхме да изпратим запитването. Моля, свържи се с нас по телефон." },
+        { status: 502 }
+      );
     }
 
-    const result = await response.json();
-    console.log("Email изпратен успешно:", result);
-
     return NextResponse.json({ ok: true });
-    
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    console.error("Email error:", msg);
-    
+  } catch (error) {
+    console.error("Contact form: email transport failed", error instanceof Error ? error.name : "unknown");
     return NextResponse.json(
-      { error: "Грешка при изпращане. Моля свържи се по телефон." },
+      { error: "Временно не можем да изпратим запитването. Моля, обади се по телефона." },
       { status: 500 }
     );
   }
