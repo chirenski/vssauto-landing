@@ -8,6 +8,7 @@ type Payload = {
   email?: unknown;
   car?: unknown;
   message?: unknown;
+  turnstileToken?: unknown;
 };
 
 function readField(value: unknown): string {
@@ -15,26 +16,36 @@ function readField(value: unknown): string {
 }
 
 function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function invalid(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
 
+async function verifyTurnstile(token: string, secret: string): Promise<boolean> {
+  const form = new URLSearchParams({ secret, response: token });
+  const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+    cache: "no-store",
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) {
+    console.error("Contact form: Turnstile verification HTTP error", response.status);
+    return false;
+  }
+  const result: { success?: boolean; hostname?: string } = await response.json();
+  return result.success === true &&
+    (result.hostname === "vssauto.net" || result.hostname === "www.vssauto.net");
+}
+
 export async function POST(req: Request) {
   let body: Payload;
-
   try {
     const parsed: unknown = await req.json();
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return invalid("Невалидни данни.");
-    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return invalid("Невалидни данни.");
     body = parsed as Payload;
   } catch {
     return invalid("Невалидни данни.");
@@ -45,26 +56,34 @@ export async function POST(req: Request) {
   const email = readField(body.email);
   const car = readField(body.car);
   const message = readField(body.message);
+  const turnstileToken = readField(body.turnstileToken);
 
-  if (!name || !phone || !message) {
-    return invalid("Попълни име, телефон и съобщение.");
-  }
-
+  if (!name || !phone || !message) return invalid("Попълни име, телефон и съобщение.");
   if (name.length > 120 || phone.length > 50 || email.length > 254 || car.length > 200 || message.length > 5000) {
     return invalid("Някое от полетата е прекалено дълго.");
   }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return invalid("Невалиден имейл адрес.");
+  if (!turnstileToken || turnstileToken.length > 2048) return invalid("Липсва валидна проверка за сигурност. Презареди страницата.");
 
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return invalid("Невалиден имейл адрес.");
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) {
+    console.error("Contact form: TURNSTILE_SECRET_KEY is missing");
+    return NextResponse.json({ error: "Формата е временно недостъпна. Моля, обади се по телефона." }, { status: 500 });
+  }
+
+  try {
+    if (!(await verifyTurnstile(turnstileToken, secret))) {
+      return invalid("Проверката за сигурност не успя. Опитай отново.");
+    }
+  } catch (error) {
+    console.error("Contact form: Turnstile verification failed", error instanceof Error ? error.name : "unknown");
+    return NextResponse.json({ error: "Проверката за сигурност временно не е достъпна. Опитай отново." }, { status: 503 });
   }
 
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.error("Contact form: RESEND_API_KEY is missing");
-    return NextResponse.json(
-      { error: "Временно не можем да изпратим запитването. Моля, обади се по телефона." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Временно не можем да изпратим запитването. Моля, обади се по телефона." }, { status: 500 });
   }
 
   const to = process.env.CONTACT_TO || "office@vssauto.net";
@@ -102,10 +121,7 @@ export async function POST(req: Request) {
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         from: "VSS Auto <noreply@vssauto.net>",
         to: [to],
@@ -119,26 +135,15 @@ export async function POST(req: Request) {
 
     if (!response.ok) {
       const details: unknown = await response.json().catch(() => null);
-      // Do not log API keys or customers' submitted personal information.
       const providerCode = details && typeof details === "object" && "name" in details
         ? String((details as { name?: unknown }).name)
         : "unknown";
-      console.error("Contact form: Resend rejected request", {
-        status: response.status,
-        providerCode,
-      });
-      return NextResponse.json(
-        { error: "Не успяхме да изпратим запитването. Моля, свържи се с нас по телефон." },
-        { status: 502 }
-      );
+      console.error("Contact form: Resend rejected request", { status: response.status, providerCode });
+      return NextResponse.json({ error: "Не успяхме да изпратим запитването. Моля, свържи се с нас по телефон." }, { status: 502 });
     }
-
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Contact form: email transport failed", error instanceof Error ? error.name : "unknown");
-    return NextResponse.json(
-      { error: "Временно не можем да изпратим запитването. Моля, обади се по телефона." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Временно не можем да изпратим запитването. Моля, обади се по телефона." }, { status: 500 });
   }
 }
