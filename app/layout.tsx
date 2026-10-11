@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 import { Montserrat } from "next/font/google";
@@ -6,14 +7,6 @@ import { Montserrat } from "next/font/google";
 import SiteNav from "@/components/SiteNav";
 import SiteFooter from "@/components/SiteFooter";
 
-/**
- * One font everywhere: Montserrat (№5)
- * - --font-sans: used by Tailwind's font-sans (NavBar/body/etc.)
- * - --font-display: used by font-display (headings/hero/etc.)
- *
- * We intentionally load Montserrat twice with different CSS variables
- * so the whole project uses ONLY Montserrat, without touching other files.
- */
 const montserratSans = Montserrat({
   subsets: ["latin", "cyrillic"],
   display: "swap",
@@ -60,6 +53,27 @@ export default function RootLayout({
           <main className="flex-1">{children}</main>
           <SiteFooter />
         </div>
+
+        <Script id="openai-pixel" strategy="afterInteractive">
+          {`
+            !function(w,d,s,u){
+              if(w.oaiq)return;
+              var q=function(){q.q.push(arguments)};
+              q.q=[];
+              w.oaiq=q;
+              var j=d.createElement(s);
+              j.async=1;
+              j.src=u;
+              var f=d.getElementsByTagName(s)[0];
+              f.parentNode.insertBefore(j,f);
+            }(window,document,"script","https://bzrcdn.openai.com/sdk/oaiq.min.js");
+
+            oaiq("init",{
+              pixelId:"NiRiJ3dUppAthzRsQgAsL9",
+              debug:false
+            });
+          `}
+        </Script>
       </body>
     </html>
   );
