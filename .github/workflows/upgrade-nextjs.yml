@@ -2,6 +2,9 @@
 name: Upgrade Next.js Test
 
 on:
+  push:
+    branches:
+      - upgrade-nextjs
   workflow_dispatch:
 
 permissions:
