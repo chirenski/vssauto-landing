@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Status = "idle" | "sending" | "ok" | "error";
 
@@ -22,67 +23,103 @@ type TurnstileApi = {
 declare global {
   interface Window {
     turnstile?: TurnstileApi;
+    oaiq?: (
+      command: "measure",
+      event: "lead_created",
+      data: { type: "customer_action" }
+    ) => void;
   }
 }
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
 
 export default function ContactForm() {
+  const router = useRouter();
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [turnstileReady, setTurnstileReady] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
   const turnstileContainer = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
-  const disabled = status === "sending" || !turnstileReady || !turnstileToken;
+  const submitting = useRef(false);
+
+  const disabled =
+    status === "sending" ||
+    status === "ok" ||
+    !turnstileReady ||
+    !turnstileToken;
 
   useEffect(() => {
     if (!SITE_KEY) {
-      setError("Защитата на формата не е конфигурирана. Моля, обади се по телефона.");
+      setError(
+        "Защитата на формата не е конфигурирана. Моля, обади се по телефона."
+      );
       return;
     }
 
     let mounted = true;
+
     const init = () => {
-      if (!mounted || !window.turnstile || !turnstileContainer.current || widgetId.current) return;
-      widgetId.current = window.turnstile.render(turnstileContainer.current, {
-        sitekey: SITE_KEY,
-        theme: "auto",
-        callback: (token) => {
-          if (!mounted) return;
-          setTurnstileToken(token);
-          setError(null);
-        },
-        "expired-callback": () => {
-          if (mounted) setTurnstileToken("");
-        },
-        "error-callback": () => {
-          if (!mounted) return;
-          setTurnstileToken("");
-          setError("Проверката за сигурност не успя. Презареди страницата и опитай отново.");
-        },
-      });
+      if (
+        !mounted ||
+        !window.turnstile ||
+        !turnstileContainer.current ||
+        widgetId.current
+      ) {
+        return;
+      }
+
+      widgetId.current = window.turnstile.render(
+        turnstileContainer.current,
+        {
+          sitekey: SITE_KEY,
+          theme: "auto",
+          callback: (token) => {
+            if (!mounted) return;
+            setTurnstileToken(token);
+            setError(null);
+          },
+          "expired-callback": () => {
+            if (mounted) setTurnstileToken("");
+          },
+          "error-callback": () => {
+            if (!mounted) return;
+            setTurnstileToken("");
+            setError(
+              "Проверката за сигурност не успя. Презареди страницата и опитай отново."
+            );
+          },
+        }
+      );
+
       setTurnstileReady(true);
     };
 
     if (window.turnstile) {
       init();
     } else {
-      let script = document.querySelector<HTMLScriptElement>("script[data-vss-turnstile]");
+      let script = document.querySelector<HTMLScriptElement>(
+        "script[data-vss-turnstile]"
+      );
+
       if (!script) {
         script = document.createElement("script");
-        script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+        script.src =
+          "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
         script.async = true;
         script.defer = true;
         script.dataset.vssTurnstile = "true";
         document.head.appendChild(script);
       }
+
       script.addEventListener("load", init);
-      // The existing script may already have loaded before the listener was added.
+
       if (window.turnstile) init();
+
       return () => {
         mounted = false;
         script?.removeEventListener("load", init);
+
         if (widgetId.current && window.turnstile) {
           window.turnstile.remove(widgetId.current);
           widgetId.current = null;
@@ -92,6 +129,7 @@ export default function ContactForm() {
 
     return () => {
       mounted = false;
+
       if (widgetId.current && window.turnstile) {
         window.turnstile.remove(widgetId.current);
         widgetId.current = null;
@@ -101,7 +139,9 @@ export default function ContactForm() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (status === "sending") return;
+
+    if (submitting.current || status === "ok") return;
+
     setError(null);
 
     if (!turnstileToken) {
@@ -112,6 +152,7 @@ export default function ContactForm() {
 
     const form = e.currentTarget;
     const fd = new FormData(form);
+
     const payload = {
       name: String(fd.get("name") || "").trim(),
       phone: String(fd.get("phone") || "").trim(),
@@ -127,63 +168,134 @@ export default function ContactForm() {
       return;
     }
 
+    submitting.current = true;
     setStatus("sending");
+
     try {
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(result?.error || "Неуспешно изпращане.");
 
-      setStatus("ok");
-      form.reset();
-      window.location.assign("/thank-you");
+      const result = await res.json().catch(() => null);
+
+      if (
+        !res.ok ||
+        result?.ok !== true ||
+        result?.saved !== true
+      ) {
+        throw new Error(
+          typeof result?.error === "string"
+            ? result.error
+            : "Неуспешно изпращане."
+        );
+      }
     } catch (err) {
+      submitting.current = false;
       setStatus("error");
-      setError(err instanceof Error ? err.message : "Грешка при изпращане.");
+      setError(
+        err instanceof Error ? err.message : "Грешка при изпращане."
+      );
       setTurnstileToken("");
-      if (widgetId.current && window.turnstile) window.turnstile.reset(widgetId.current);
+
+      if (widgetId.current && window.turnstile) {
+        window.turnstile.reset(widgetId.current);
+      }
+
+      return;
     }
+
+    setStatus("ok");
+    form.reset();
+
+    // Tracking errors must not affect the accepted inquiry.
+    try {
+      window.oaiq?.("measure", "lead_created", {
+        type: "customer_action",
+      });
+    } catch {
+      // The inquiry is already saved successfully.
+    }
+
+    router.push("/thank-you");
   }
 
   return (
     <div className="panel rounded-3xl p-6">
       <div className="text-sm text-vss-muted">Форма за запитване</div>
-      <div className="mt-2 text-xl font-extrabold">Разкажи ни за автомобила</div>
+      <div className="mt-2 text-xl font-extrabold">
+        Разкажи ни за автомобила
+      </div>
 
       <form onSubmit={onSubmit} className="mt-5 grid gap-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Име и фамилия" name="name" placeholder="Иван Иванов" required disabled={status === "sending"} />
-          <Field label="Телефон" name="phone" placeholder="08xx xxx xxx" required disabled={status === "sending"} />
+          <Field
+            label="Име и фамилия"
+            name="name"
+            placeholder="Иван Иванов"
+            required
+            disabled={status === "sending" || status === "ok"}
+          />
+          <Field
+            label="Телефон"
+            name="phone"
+            placeholder="08xx xxx xxx"
+            required
+            disabled={status === "sending" || status === "ok"}
+          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Имейл (по желание)" name="email" placeholder="you@email.com" disabled={status === "sending"} />
-          <Field label="Автомобил" name="car" placeholder="Марка / Модел / Двигател / Година" disabled={status === "sending"} />
+          <Field
+            label="Имейл (по желание)"
+            name="email"
+            placeholder="you@email.com"
+            disabled={status === "sending" || status === "ok"}
+          />
+          <Field
+            label="Автомобил"
+            name="car"
+            placeholder="Марка / Модел / Двигател / Година"
+            disabled={status === "sending" || status === "ok"}
+          />
         </div>
 
         <div>
-          <label className="text-sm text-vss-muted" htmlFor="contact-message">Съобщение</label>
+          <label
+            className="text-sm text-vss-muted"
+            htmlFor="contact-message"
+          >
+            Съобщение
+          </label>
           <textarea
             id="contact-message"
             name="message"
             required
-            disabled={status === "sending"}
+            disabled={status === "sending" || status === "ok"}
             rows={5}
             placeholder="Какво целиш? (тунинг / диагностика)"
             className="mt-2 w-full rounded-2xl bg-black/30 border border-white/10 px-4 py-3 outline-none focus:border-vss-accent/60"
           />
         </div>
 
-        <div ref={turnstileContainer} className="min-h-[65px]" aria-label="Проверка за сигурност" />
+        <div
+          ref={turnstileContainer}
+          className="min-h-[65px]"
+          aria-label="Проверка за сигурност"
+        />
+
         {!turnstileReady && SITE_KEY && (
-          <p className="text-xs text-vss-muted">Зареждане на проверката за сигурност…</p>
+          <p className="text-xs text-vss-muted">
+            Зареждане на проверката за сигурност…
+          </p>
         )}
 
         {error ? (
-          <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm" role="alert">
+          <div
+            className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm"
+            role="alert"
+          >
             {error}
           </div>
         ) : null}
@@ -193,11 +305,16 @@ export default function ContactForm() {
           disabled={disabled}
           className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-vss-accent text-black hover:opacity-90 disabled:opacity-60 transition"
         >
-          {status === "sending" ? "Изпращане..." : "Изпрати запитване"}
+          {status === "sending"
+            ? "Изпращане..."
+            : status === "ok"
+              ? "Запитването е изпратено"
+              : "Изпрати запитване"}
         </button>
 
         <p className="text-xs text-vss-muted leading-relaxed">
-          С изпращането на запитване се съгласяваш да се свържем с теб по телефон/имейл.
+          С изпращането на запитване се съгласяваш да се свържем с теб
+          по телефон/имейл.
         </p>
       </form>
     </div>
@@ -219,7 +336,12 @@ function Field({
 }) {
   return (
     <div>
-      <label className="text-sm text-vss-muted" htmlFor={`contact-${name}`}>{label}</label>
+      <label
+        className="text-sm text-vss-muted"
+        htmlFor={`contact-${name}`}
+      >
+        {label}
+      </label>
       <input
         id={`contact-${name}`}
         name={name}
